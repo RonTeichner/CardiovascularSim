@@ -52,7 +52,7 @@ def lotkavolterra(t, z, *args):
     x, y = z
     return [a*x - b*x*y, -c*y + d*x*y]
 
-def zenkerModel(t, stateVec, *args)
+def zenkerModel(t, stateVec, *args):
     # we use prefix s_ to denote state variables and prefix p_ to denote model parameters
     zenkerParamsDict = args[0]
     heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
@@ -78,7 +78,7 @@ def zenkerModel(t, stateVec, *args)
     # calculating tilde_V_es - the current set point of end systolic volume in left ventricle
     hat_V_es = s_Ved - C_PRSW*(s_Ved - p_V_ed_0)/(Pa-Ped)
     if Pa > Ped:
-        tilde_V_es = np.max(p_V_ed_0, hat_V_es)
+        tilde_V_es = np.max([p_V_ed_0, hat_V_es])
     else:
         tilde_V_es = p_V_ed_0
 
@@ -89,8 +89,8 @@ def zenkerModel(t, stateVec, *args)
     Pes = p_P_0_lv * (np.exp(p_k_E_lv * (s_Ves - p_V_ed_0)) - 1)  # [mmHg] pressure in the left ventricle at end of systole
 
     # calculating Pv - the pressure in the veins
-    p_Cv = systemicParamsDict["C_v"]
-    Pv = (s_Vv - V_v0)/p_Cv
+    p_C_v = systemicParamsDict["C_v"]
+    Pv = (s_Vv - V_v0)/p_C_v
 
     # calculating tilde_V_ed - the current set point of end diastolic volume in left ventricle
     p_k1, p_R_valve, p_T_sys = heartParamsDict["k1"], heartParamsDict["R_valve"], heartParamsDict["T_sys"]
@@ -104,5 +104,25 @@ def zenkerModel(t, stateVec, *args)
 
     # calculating dot_Ved - the current rate of change of the diastolic end volume in left ventricle
     dot_Ved = (tilde_V_ed - s_Ved) * f_HR
+
+    # calculating blood flows, cardiac ouput and the rate of change in arteries blood volume
+    Ic = (Pa - Pv) / p_C_a  # arterio -> venous (capillary blood flow)
+    Vs = (s_Ved - s_Ves)  # stroke volume
+    Ico = f_HR * Vs  # cardiac output
+    dot_Va = Ico - Ic
+
+    # calculating the rate of change in venous blood volume
+    dot_Vv = - dot_Va
+
+    # calculating the rate of change in sympathetic signal
+    p_K_width, p_P_a_set, p_tau_Baro = controlParamsDict["K_width"], controlParamsDict["P_a_set"], controlParamsDict["tau_Baro"]
+    logisticFunc = 1 / (1 + np.exp(-p_K_width*(Pa - p_P_a_set)))
+    dot_S = (1/p_tau_Baro) * (1 - logisticFunc - s_S)
+
+    return [dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S]
+
+
+
+
 
 
