@@ -17,8 +17,9 @@ plt.legend(['x', 'y'], shadow=True)
 plt.title('Lotka-Volterra System')
 plt.show()
 """
-zenkerParamsDict = zenkerParams()
-totalBloodVol = zenkerParamsDict["systemicParamsDict"]["V_t"]
+
+ZenkerPatient = ZenkerToolbox()
+totalBloodVol = ZenkerPatient.paramsDict["systemicParamsDict"]["V_t"]
 # state init values:
 V_es_init = 20  # [ml]
 V_ed_init = 70  # [ml]
@@ -28,10 +29,13 @@ S_init = 0
 initList = [V_es_init, V_ed_init, V_a_init, V_v_init, S_init]
 
 simDuration = 100  # [sec]
-sol = solve_ivp(zenkerModel, [0, simDuration], initList, args=[zenkerParamsDict], dense_output=True)
+sol = ZenkerPatient.runModel(simDuration=simDuration, initList=initList)
 
 t = np.linspace(0, simDuration, 100*simDuration)
 z = sol.sol(t)
+
+
+
 
 nColumns = 4
 plt.subplot(nColumns, 1, 1)
