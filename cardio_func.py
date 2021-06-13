@@ -57,12 +57,33 @@ class ZenkerToolbox:
 
         return paramsDict
 
-    def runModel(self, simDuration, initList):
-        sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+    def runModel(self, simDuration, initList, enableExternalInput):
+        if enableExternalInput:
+            sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+        else:
+            sol = solve_ivp(self.zenkerModelNoExternalInput, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+
         return sol
+
+    def zenkerModelNoExternalInput(self, t, stateVecNoInput, *args):
+        # the blood volume in the venous is resultant
+        # stateVec: [Ves, Ved, Va, S]
+        zenkerParamsDict = args[0]
+        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
+        totalBloodVol = systemicParamsDict["V_t"]
+
+        Vv = totalBloodVol - (stateVecNoInput[0] + stateVecNoInput[1] + stateVecNoInput[2])
+        stateVecComplete = [stateVecNoInput[0], stateVecNoInput[1], stateVecNoInput[2], Vv, stateVecNoInput[3]]
+
+        t = 0 # not in use
+        dotList = self.zenkerModel(t, stateVecComplete, zenkerParamsDict)
+        dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S = dotList
+
+        return [dot_Ves, dot_Ved, dot_Va, dot_S]
 
     def zenkerModel(self, t, stateVec, *args):
         # we use prefix s_ to denote state variables and prefix p_ to denote model parameters
+        # stateVec: [Ves, Ved, Va, Vv, S]
         zenkerParamsDict = args[0]
         heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict[
             "systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
