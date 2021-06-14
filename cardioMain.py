@@ -18,6 +18,10 @@ plt.title('Lotka-Volterra System')
 plt.show()
 """
 
+epidemicComunity = EpidemicToolbox()
+fixedPoints = epidemicComunity.computeFixedPoints(initialGuess = [500.0, 500.0])
+theoreticalFixedPoints = epidemicComunity.computeTheoreticalFixedPoints()
+
 ZenkerPatient = ZenkerToolbox()
 totalBloodVol = ZenkerPatient.paramsDict["systemicParamsDict"]["V_t"]
 # state init values:
@@ -28,35 +32,14 @@ V_v_init = totalBloodVol - (V_ed_init + V_es_init + V_a_init)
 S_init = 0
 initListComplete = [V_es_init, V_ed_init, V_a_init, V_v_init, S_init]
 initListNoInput = [V_es_init, V_ed_init, V_a_init, S_init]
+initArrayNoInput = np.array([[V_es_init], [V_ed_init], [V_a_init], [S_init]])
+
+fixedPoints = ZenkerPatient.computeFixedPoints(initialGuess=initListNoInput)
+print(f'Zenker model fixed point found at [Ves, Ved, Va, S] = {fixedPoints.x.round()}')
+
+
+ZenkerPatient.enableBaroreflexControl = False
 
 simDuration = 100  # [sec]
-sol = ZenkerPatient.runModel(simDuration=simDuration, initList=initListNoInput, enableExternalInput=False)
-
-t = np.linspace(0, simDuration, 100*simDuration)
-z = sol.sol(t)
-
-nColumns = 3
-plt.subplot(nColumns, 1, 1)
-plt.plot(t, z.T[:, [0, 1]])
-plt.xlabel('sec')
-plt.legend(['Ves', 'Ved'], shadow=True)
-#plt.title('Cardiovascular System')
-plt.grid()
-
-plt.subplot(nColumns, 1, 2)
-plt.plot(t, z.T[:, [2]])
-Vv = totalBloodVol - (z.T[:, 0] + z.T[:, 1] + z.T[:, 2])
-plt.plot(t, Vv)
-plt.xlabel('sec')
-plt.legend(['Va', 'Vv'], shadow=True)
-#plt.title('Cardiovascular System')
-plt.grid()
-
-plt.subplot(nColumns, 1, 3)
-plt.plot(t, z.T[:, [3]])
-plt.xlabel('sec')
-plt.legend(['S'], shadow=True)
-#plt.title('Cardiovascular System')
-plt.grid()
-
-plt.show()
+stateVec = ZenkerPatient.runModelOnBatchOfInitValues(batchSize=50, simDuration=simDuration, enableExternalInput=False)
+ZenkerPatient.printModelTrajectories(stateVec)

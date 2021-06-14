@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import root, fsolve
 import matplotlib.pyplot as plt
 
 def lotkavolterra(t, z, *args):
@@ -10,10 +11,62 @@ def lotkavolterra(t, z, *args):
     x, y = z
     return [a*x - b*x*y, -c*y + d*x*y]
 
+class EpidemicToolbox:
+    def __init__(self):
+        self.paramsDict = self.epidemicParams()
+
+    def epidemicParams(self):
+        rateParamsDict = {
+            "a": 0.5,
+            "b": 0.5,
+            "c": 1.0,
+            "N": 1000.0
+        }
+
+        paramsDict = {
+            "rateParamsDict": rateParamsDict
+        }
+
+        return paramsDict
+
+    def epidemicModelNoExternalInput(self, t, stateVecNoInput, *args):
+        # we use prefix s_ to denote state variables and prefix p_ to denote model parameters
+        # stateVec: [S, I]
+        epidemicParamsDict = args[0]
+        rateParamsDict = epidemicParamsDict["rateParamsDict"]
+
+        p_a, p_b, p_c, p_N = rateParamsDict["a"], rateParamsDict["b"], rateParamsDict["c"], rateParamsDict["N"]
+        s_S, s_I = stateVecNoInput
+
+        dot_S = -p_a*s_S*s_I + p_c*(p_N - s_S - s_I)
+        dot_I = p_a*s_S*s_I - p_b*s_I
+
+        return [dot_S, dot_I]
+
+    def epidemicModelNoExternalInput_rootWrapper(self, stateVecNoInput, *args):
+        # stateVec: [S, I]
+        epidemicParamsDict = args[0]
+        t=0 # not in use
+        return self.epidemicModelNoExternalInput(t, stateVecNoInput, epidemicParamsDict)
+
+    def computeFixedPoints(self, initialGuess):
+
+        return root(self.epidemicModelNoExternalInput_rootWrapper, initialGuess, self.paramsDict)
+
+    def computeTheoreticalFixedPoints(self):
+        rateParamsDict = self.paramsDict["rateParamsDict"]
+        p_a, p_b, p_c, p_N = rateParamsDict["a"], rateParamsDict["b"], rateParamsDict["c"], rateParamsDict["N"]
+        x0 = [p_N, 0]
+        x1 = [p_b/p_a, p_c*(p_a*p_N-p_b)/(p_a*(p_b+p_c))]
+        return [x0, x1]
+
+
 class ZenkerToolbox:
     def __init__(self):
 
         self.paramsDict = self.zenkerParams()
+
+        self.enableBaroreflexControl = True
 
     def zenkerParams(self):
         heartParamsDict = {
@@ -49,21 +102,38 @@ class ZenkerToolbox:
             "tau_Baro": 20  # [sec] - time constant for control of unstressed venous volume
         }
 
+        displayParamsDict = {
+            "fs": 100  # [Hz] - figures time resolution
+        }
+
         paramsDict = {
             "heartParamsDict": heartParamsDict,
             "systemicParamsDict": systemicParamsDict,
-            "controlParamsDict": controlParamsDict
+            "controlParamsDict": controlParamsDict,
+            "displayParamsDict": displayParamsDict
         }
 
         return paramsDict
 
-    def runModel(self, simDuration, initList, enableExternalInput):
-        if enableExternalInput:
-            sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
-        else:
-            sol = solve_ivp(self.zenkerModelNoExternalInput, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+    def runModel(self, simDuration, initArray, enableExternalInput):
+        batchSize = initArray.shape[1]
+        solList = list()
+        for b in range(batchSize):
+            initList = initArray[:, b].tolist()
+            if enableExternalInput:
+                sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+            else:
+                sol = solve_ivp(self.zenkerModelNoExternalInput, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+            solList.append(sol)
 
-        return sol
+        return solList
+
+    def zenkerModelNoExternalInput_rootWrapper(self, stateVecNoInput, *args):
+        # the blood volume in the venous is resultant
+        # stateVec: [Ves, Ved, Va, S]
+        zenkerParamsDict = args[0]
+        t=0 # not in use
+        return self.zenkerModelNoExternalInput(t, stateVecNoInput, zenkerParamsDict)
 
     def zenkerModelNoExternalInput(self, t, stateVecNoInput, *args):
         # the blood volume in the venous is resultant
@@ -75,7 +145,6 @@ class ZenkerToolbox:
         Vv = totalBloodVol - (stateVecNoInput[0] + stateVecNoInput[1] + stateVecNoInput[2])
         stateVecComplete = [stateVecNoInput[0], stateVecNoInput[1], stateVecNoInput[2], Vv, stateVecNoInput[3]]
 
-        t = 0 # not in use
         dotList = self.zenkerModel(t, stateVecComplete, zenkerParamsDict)
         dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S = dotList
 
@@ -96,7 +165,7 @@ class ZenkerToolbox:
                                                                  "C_PRSW_max"]
         p_R_TPR_min, p_R_TPR_max, p_V_v0_min, p_V_v0_max = systemicParamsDict["R_TPR_min"], systemicParamsDict[
             "R_TPR_max"], systemicParamsDict["V_v0_min"], systemicParamsDict["V_v0_max"]
-        f_HR = s_S * (p_f_HR_max - p_f_HR_min) + p_f_HR_min
+        f_HR = s_S * (p_f_HR_max - p_f_HR_min) + p_f_HR_min  # [Hz]
         R_TPR = s_S * (p_R_TPR_max - p_R_TPR_min) + p_R_TPR_min
         C_PRSW = s_S * (p_C_PRSW_max - p_C_PRSW_min) + p_C_PRSW_min
         V_v0 = (1 - s_S) * (p_V_v0_max - p_V_v0_min) + p_V_v0_min
@@ -143,7 +212,7 @@ class ZenkerToolbox:
         dot_Ved = (tilde_V_ed - s_Ved) * f_HR
 
         # calculating blood flows, cardiac ouput and the rate of change in arteries blood volume
-        Ic = (Pa - Pv) / p_C_a  # arterio -> venous (capillary blood flow)
+        Ic = (Pa - Pv) / R_TPR  # arterio -> venous (capillary blood flow)
         Vs = (s_Ved - s_Ves)  # stroke volume
         Ico = f_HR * Vs  # cardiac output
         dot_Va = Ico - Ic
@@ -152,12 +221,126 @@ class ZenkerToolbox:
         dot_Vv = - dot_Va
 
         # calculating the rate of change in sympathetic signal
-        p_K_width, p_P_a_set, p_tau_Baro = controlParamsDict["K_width"], controlParamsDict["P_a_set"], \
-                                           controlParamsDict["tau_Baro"]
-        logisticFunc = 1 / (1 + np.exp(-p_K_width * (Pa - p_P_a_set)))
-        dot_S = (1 / p_tau_Baro) * (1 - logisticFunc - s_S)
+        if self.enableBaroreflexControl:
+            p_K_width, p_P_a_set, p_tau_Baro = controlParamsDict["K_width"], controlParamsDict["P_a_set"], controlParamsDict["tau_Baro"]
+            logisticFunc = 1 / (1 + np.exp(-p_K_width * (Pa - p_P_a_set)))
+            dot_S = (1 / p_tau_Baro) * (1 - logisticFunc - s_S)
+        else:
+            dot_S = 0
 
         return [dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S]
+
+    def computeFixedPoints(self, initialGuess):
+
+        return root(self.zenkerModelNoExternalInput_rootWrapper, initialGuess, self.paramsDict)
+
+    def randomizeInitValues(self, batchSize):
+        zenkerParamsDict = self.paramsDict
+        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
+        p_totalBloodVol = systemicParamsDict["V_t"]
+
+        # draw init values, including non physiological init values
+        # every column in self.initValues is [Ves; Ved; Va; Vv; S] so that the total blood volume is constant
+        initVolumes = np.random.rand(4, batchSize)
+        totalBloodVolPreNormalization = initVolumes.sum(axis=0)
+        initVolumes = initVolumes * p_totalBloodVol/totalBloodVolPreNormalization
+
+        initSympatheticSig = np.random.rand(1, batchSize)
+
+        self.initValues = np.concatenate((initVolumes[:3, :], initSympatheticSig), axis=0)  # not including Vv in the init values
+
+        return self.initValues
+
+    def runModelOnBatchOfInitValues(self, batchSize, simDuration, enableExternalInput):
+        solList = self.runModel(simDuration, self.randomizeInitValues(batchSize), enableExternalInput)
+
+        p_fs = self.paramsDict["displayParamsDict"]["fs"]
+        tVec = np.linspace(0, simDuration - 1/p_fs, p_fs*simDuration)
+
+        stateVec = np.zeros((tVec.shape[0], batchSize, 4))
+        for b, sol in enumerate(solList):
+            stateVec[:, b] = np.transpose(sol.sol(tVec))
+
+        return stateVec
+
+    def computeCardiacOutput(self, stateVec):
+        zenkerParamsDict = self.paramsDict
+        heartParamsDict, systemicParamsDict, controlParamsDict, displayParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"], zenkerParamsDict["displayParamsDict"]
+
+        s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
+
+        Vs = s_Ved - s_Ves  # stroke volume
+
+        p_f_HR_min, p_f_HR_max = heartParamsDict["f_HR_min"], heartParamsDict["f_HR_max"]
+        f_HR = s_S * (p_f_HR_max - p_f_HR_min) + p_f_HR_min  # [Hz]
+
+        cardiacOutput = 60 * Vs * f_HR # [ml/min]
+
+        return cardiacOutput, Vs
+
+    def printModelTrajectories(self, stateVec):
+        batchSize, nSamples = stateVec.shape[1], stateVec.shape[0]
+
+        zenkerParamsDict = self.paramsDict
+        heartParamsDict, systemicParamsDict, controlParamsDict, displayParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"], zenkerParamsDict["displayParamsDict"]
+
+        p_fs = displayParamsDict["fs"]  # [Hz]
+        p_totalBloodVol = systemicParamsDict["V_t"]  # [ml]
+
+        tVec = (1/p_fs) * np.arange(0, nSamples)  # [sec]
+
+        s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
+        Vv = p_totalBloodVol - (s_Ves + s_Ved + s_Va)
+
+        cardiacOutput, Vs = self.computeCardiacOutput(stateVec)  # [ml / min], [ml]
+
+        fig, axs = plt.subplots(3, 2, sharex=True, sharey=False)
+
+        axs[0, 0].plot(tVec, s_Ves, label='Ves')
+        axs[0, 0].set_xlabel('s')
+        axs[0, 0].set_ylabel('ml')
+        axs[0, 0].set_title('Ves')
+
+        axs[1, 0].plot(tVec, s_Ved, label='Ved')
+        axs[1, 0].set_xlabel('s')
+        axs[1, 0].set_ylabel('ml')
+        axs[1, 0].set_title('Ved')
+
+        axs[0, 1].plot(tVec, s_Va, label='Va')
+        axs[0, 1].set_xlabel('s')
+        axs[0, 1].set_ylabel('ml')
+        axs[0, 1].set_title('Va')
+
+        axs[1, 1].plot(tVec, s_S, label='S')
+        axs[1, 1].set_xlabel('s')
+        axs[1, 1].set_title('S')
+
+        axs[2, 0].plot(tVec, cardiacOutput)
+        axs[2, 0].set_xlabel('s')
+        axs[2, 0].set_ylabel('ml / min')
+        axs[2, 0].set_title('cardiac output')
+
+        axs[2, 1].plot(tVec, Vs)
+        axs[2, 1].set_xlabel('s')
+        axs[2, 1].set_ylabel('ml')
+        axs[2, 1].set_title('stroke vol.')
+
+        plt.show()
+
+        x=3
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
