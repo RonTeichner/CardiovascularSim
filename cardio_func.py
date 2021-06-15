@@ -116,10 +116,10 @@ class ZenkerToolbox:
         return paramsDict
 
     def runModel(self, simDuration, initArray, enableExternalInput):
-        batchSize = initArray.shape[1]
+        batchSize = initArray.shape[2]
         solList = list()
         for b in range(batchSize):
-            initList = initArray[:, b].tolist()
+            initList = initArray[:, 0, b].tolist()
             if enableExternalInput:
                 sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
             else:
@@ -133,16 +133,17 @@ class ZenkerToolbox:
         # stateVec: [Ves, Ved, Va, S]
         zenkerParamsDict = args[0]
         t=0 # not in use
-        return self.zenkerModelNoExternalInput(t, stateVecNoInput, zenkerParamsDict)
+        return self.zenkerModelNoExternalInput(t, stateVecNoInput.tolist(), zenkerParamsDict)
 
     def zenkerModelNoExternalInput(self, t, stateVecNoInput, *args):
         # the blood volume in the venous is resultant
-        # stateVec: [Ves, Ved, Va, S]
+        # stateVec: [Ves, Ved, Va, S] (must be list to be compatible with solve_ivp)
         zenkerParamsDict = args[0]
         heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
-        totalBloodVol = systemicParamsDict["V_t"]
+        p_totalBloodVol = systemicParamsDict["V_t"]
 
-        Vv = totalBloodVol - (stateVecNoInput[0] + stateVecNoInput[1] + stateVecNoInput[2])
+        Vs = stateVecNoInput[1] - stateVecNoInput[0]
+        Vv = self.computeVenousBloodVolume(stateVecNoInput)
         stateVecComplete = [stateVecNoInput[0], stateVecNoInput[1], stateVecNoInput[2], Vv, stateVecNoInput[3]]
 
         dotList = self.zenkerModel(t, stateVecComplete, zenkerParamsDict)
@@ -240,15 +241,30 @@ class ZenkerToolbox:
         p_totalBloodVol = systemicParamsDict["V_t"]
 
         # draw init values, including non physiological init values
-        # every column in self.initValues is [Ves; Ved; Va; Vv; S] so that the total blood volume is constant
-        initVolumes = np.random.rand(4, batchSize)
-        totalBloodVolPreNormalization = initVolumes.sum(axis=0)
-        initVolumes = initVolumes * p_totalBloodVol/totalBloodVolPreNormalization
+        # every column in self.initValues is [Ves; Ved; Va; S] so that the total blood volume is constant
+
+        # draw some numbers for the volumes:
+        Ves, Va, Vv = np.random.rand(1, batchSize), np.random.rand(1, batchSize), np.random.rand(1, batchSize)
+        Ved = Ves + np.random.rand(1, batchSize) # otherwise the stroke volume, Ved-Ves is negative, In addition, rate up to ten between them sounds reasonable
+        Ved2Ves = np.divide(Ved, Ves)
+        # normalize to have proper total blood volume:
+        Vs = Ved - Ves  # stroke volume
+        totalBloodVolPreNormalization = Va + Vv + 0.5*Vs   # we assume the mean blood volume in the heart to be half the stroke volume
+        unnormalizedVolumes = np.concatenate((Vs, Va, Vv), axis=0)
+        normalizedVolumes = unnormalizedVolumes * p_totalBloodVol/totalBloodVolPreNormalization
+
+        Vs_normalized, Va_normalized, Vv_normalized = normalizedVolumes[0:1, :], normalizedVolumes[1:2, :], normalizedVolumes[2:3, :]
+
+        if False: # sanity check for total blood volume
+            totalBloodVolNormalized = Va_normalized + Vv_normalized + 0.5*Vs_normalized
+
+        Ves_normalized = np.divide(Vs_normalized, Ved2Ves - 1)
+        Ved_normalized = Vs_normalized + Ves_normalized
 
         initSympatheticSig = np.random.rand(1, batchSize)
 
-        self.initValues = np.concatenate((initVolumes[:3, :], initSympatheticSig), axis=0)  # not including Vv in the init values
-
+        self.initValues = np.concatenate((Ves_normalized, Ved_normalized, Va_normalized, initSympatheticSig), axis=0)  # not including Vv in the init values
+        self.initValues = self.initValues[:, None, :]  # standartization of [observable, time, batch]
         return self.initValues
 
     def runModelOnBatchOfInitValues(self, batchSize, simDuration, enableExternalInput):
@@ -278,7 +294,20 @@ class ZenkerToolbox:
 
         return cardiacOutput, Vs
 
-    def printModelTrajectories(self, stateVec):
+    def computeVenousBloodVolume(self, stateVec):
+        zenkerParamsDict = self.paramsDict
+        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
+        p_totalBloodVol = systemicParamsDict["V_t"]
+
+        s_Ves, s_Ved, s_Va, s_S = stateVec[0], stateVec[1], stateVec[2], stateVec[3]
+        Vs = s_Ved - s_Ves  # stroke volume
+
+        Vv = p_totalBloodVol - (0.5 * Vs + s_Va)  # we assume the mean blood volume in the heart to be half the stroke volume
+
+        return Vv
+
+
+    def printModelTrajectories(self, stateVec, figTitle):
         batchSize, nSamples = stateVec.shape[1], stateVec.shape[0]
 
         zenkerParamsDict = self.paramsDict
@@ -290,11 +319,11 @@ class ZenkerToolbox:
         tVec = (1/p_fs) * np.arange(0, nSamples)  # [sec]
 
         s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
-        Vv = p_totalBloodVol - (s_Ves + s_Ved + s_Va)
 
         cardiacOutput, Vs = self.computeCardiacOutput(stateVec)  # [ml / min], [ml]
 
         fig, axs = plt.subplots(3, 2, sharex=True, sharey=False)
+        fig.suptitle(figTitle, fontsize=16)
 
         axs[0, 0].plot(tVec, s_Ves, label='Ves')
         axs[0, 0].set_xlabel('s')
@@ -325,9 +354,6 @@ class ZenkerToolbox:
         axs[2, 1].set_ylabel('ml')
         axs[2, 1].set_title('stroke vol.')
 
-        plt.show()
-
-        x=3
 
 
 
