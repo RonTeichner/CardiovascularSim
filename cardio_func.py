@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.optimize import root, fsolve
+from scipy.optimize import root
+from scipy.signal import unique_roots
 import matplotlib.pyplot as plt
 
 def lotkavolterra(t, z, *args):
@@ -123,7 +124,7 @@ class ZenkerToolbox:
             if enableExternalInput:
                 sol = solve_ivp(self.zenkerModel, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
             else:
-                sol = solve_ivp(self.zenkerModelNoExternalInput, [0, simDuration], initList, args=[self.paramsDict], dense_output=True)
+                sol = solve_ivp(self.zenkerModelNoExternalInput, [0, simDuration], initList, args=[self.paramsDict], dense_output=True, rtol=1e-9)
             solList.append(sol)
 
         return solList
@@ -231,9 +232,24 @@ class ZenkerToolbox:
 
         return [dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S]
 
-    def computeFixedPoints(self, initialGuess):
+    def computeFixedPoints(self, batchSize, thr, initialGuess=0):
+        # because the function root() might not find all fixed points we call it multiple times with random initial guesses and collect the fixed points. Then we find the unique fixed points
+        if batchSize > 0:
+            fixedPointsList = list()
+            initValues = self.randomizeInitValues(batchSize)
+            for b in range(batchSize):
+                fixedPoints = root(self.zenkerModelNoExternalInput_rootWrapper, initValues[:, 0, b], self.paramsDict)
+                #  s_Ves, s_Ved, s_Va, s_S  (order of values in fixedPoints)
+                cardiacOutput = fixedPoints.x[1] - fixedPoints.x[0]
+                if fixedPoints.success and cardiacOutput >= 0: fixedPointsList.append(fixedPoints.x)
+            fixedPointsArray = np.asarray(fixedPointsList)
+            fixedPointsArray = thr * np.round(fixedPointsArray/thr) # rounding to threshold
+            uniqueFixedPoints = np.unique(fixedPointsArray, axis=0)
 
-        return root(self.zenkerModelNoExternalInput_rootWrapper, initialGuess, self.paramsDict)
+        else:
+            uniqueFixedPoints = root(self.zenkerModelNoExternalInput_rootWrapper, initialGuess, self.paramsDict)
+
+        return uniqueFixedPoints
 
     def randomizeInitValues(self, batchSize):
         zenkerParamsDict = self.paramsDict
@@ -306,6 +322,63 @@ class ZenkerToolbox:
 
         return Vv
 
+    def fixedPoint_wrt_parameterChange(self, parameterSubDictionaryName, parameterName, parameterUnits, minVal, maxVal, nValues, batchSize, thr):
+        nominalParameterValue = self.paramsDict[parameterSubDictionaryName][parameterName]
+        parameterValues = np.linspace(minVal, maxVal, nValues).tolist()
+        fixedPoints_wrt_parameterVal = list()
+        for i, parameterValue in enumerate(parameterValues):
+            self.paramsDict[parameterSubDictionaryName][parameterName] = parameterValue
+            fixedPoints = self.computeFixedPoints(batchSize, thr)
+            #  s_Ves, s_Ved, s_Va, s_S  (order of values in fixedPoints)
+            assert fixedPoints.shape[1] > 1
+            fixedPoints_wrt_parameterVal.append(fixedPoints[0, :])
+
+        stateVec = np.asarray(fixedPoints_wrt_parameterVal)[:, None, :]  # [nValues x 1 x #stateVec]
+        figTitle = "fixed point wrt " + parameterName + "; nominalValue = " + np.array_str(np.array(nominalParameterValue)) + " [" + parameterUnits + "]"
+        xlabel = parameterName + " [" + parameterUnits + "]"
+        self.printStateVec(stateVec, figTitle, parameterValues, xlabel)
+
+        self.paramsDict[parameterSubDictionaryName][parameterName] = nominalParameterValue
+
+
+    def printStateVec(self, stateVec, figTitle, xVec, xlabel):
+        s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
+
+        cardiacOutput, Vs = self.computeCardiacOutput(stateVec)  # [ml / min], [ml]
+
+        fig, axs = plt.subplots(3, 2, sharex=True, sharey=False)
+
+        fig.suptitle(figTitle, fontsize=16)
+
+        axs[0, 0].plot(xVec, s_Ves, label='Ves')
+        axs[0, 0].set_xlabel(xlabel)
+        axs[0, 0].set_ylabel('ml')
+        axs[0, 0].set_title('Ves')
+
+        axs[1, 0].plot(xVec, s_Ved, label='Ved')
+        axs[1, 0].set_xlabel(xlabel)
+        axs[1, 0].set_ylabel('ml')
+        axs[1, 0].set_title('Ved')
+
+        axs[0, 1].plot(xVec, s_Va, label='Va')
+        axs[0, 1].set_xlabel(xlabel)
+        axs[0, 1].set_ylabel('ml')
+        axs[0, 1].set_title('Va')
+
+        axs[1, 1].plot(xVec, s_S, label='S')
+        axs[1, 1].set_xlabel(xlabel)
+        axs[1, 1].set_title('S')
+
+        axs[2, 0].plot(xVec, cardiacOutput)
+        axs[2, 0].set_xlabel(xlabel)
+        axs[2, 0].set_ylabel('ml / min')
+        axs[2, 0].set_title('cardiac output')
+
+        axs[2, 1].plot(xVec, Vs)
+        axs[2, 1].set_xlabel(xlabel)
+        axs[2, 1].set_ylabel('ml')
+        axs[2, 1].set_title('stroke vol.')
+
 
     def printModelTrajectories(self, stateVec, figTitle):
         batchSize, nSamples = stateVec.shape[1], stateVec.shape[0]
@@ -318,45 +391,7 @@ class ZenkerToolbox:
 
         tVec = (1/p_fs) * np.arange(0, nSamples)  # [sec]
 
-        s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
-
-        cardiacOutput, Vs = self.computeCardiacOutput(stateVec)  # [ml / min], [ml]
-
-        fig, axs = plt.subplots(3, 2, sharex=True, sharey=False)
-        fig.suptitle(figTitle, fontsize=16)
-
-        axs[0, 0].plot(tVec, s_Ves, label='Ves')
-        axs[0, 0].set_xlabel('s')
-        axs[0, 0].set_ylabel('ml')
-        axs[0, 0].set_title('Ves')
-
-        axs[1, 0].plot(tVec, s_Ved, label='Ved')
-        axs[1, 0].set_xlabel('s')
-        axs[1, 0].set_ylabel('ml')
-        axs[1, 0].set_title('Ved')
-
-        axs[0, 1].plot(tVec, s_Va, label='Va')
-        axs[0, 1].set_xlabel('s')
-        axs[0, 1].set_ylabel('ml')
-        axs[0, 1].set_title('Va')
-
-        axs[1, 1].plot(tVec, s_S, label='S')
-        axs[1, 1].set_xlabel('s')
-        axs[1, 1].set_title('S')
-
-        axs[2, 0].plot(tVec, cardiacOutput)
-        axs[2, 0].set_xlabel('s')
-        axs[2, 0].set_ylabel('ml / min')
-        axs[2, 0].set_title('cardiac output')
-
-        axs[2, 1].plot(tVec, Vs)
-        axs[2, 1].set_xlabel('s')
-        axs[2, 1].set_ylabel('ml')
-        axs[2, 1].set_title('stroke vol.')
-
-
-
-
+        self.printStateVec(stateVec, figTitle, tVec, "sec")
 
 
 

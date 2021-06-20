@@ -36,10 +36,13 @@ S_init = 0
 initArrayNoInput = np.array([[V_es_init], [V_ed_init], [V_a_init], [S_init]])
 initArrayNoInput = initArrayNoInput[:, :, None]  # standartization of [observable, time, batch]
 
-fixedPoints = ZenkerPatient.computeFixedPoints(initialGuess=initArrayNoInput)
-print(f'Zenker model fixed point found at [Ves, Ved, Va, S] = {fixedPoints.x}')
+fixedPoints = ZenkerPatient.computeFixedPoints(batchSize=1000, thr=1e-3)
+print(f'Zenker model fixed point found at [Ves, Ved, Va, S] = {fixedPoints}')
 
 simDuration = 100  # [sec]
+
+ZenkerPatient.fixedPoint_wrt_parameterChange("systemicParamsDict", "V_a0", parameterUnits = 'ml', minVal=300, maxVal=2000, nValues=1000, batchSize=500, thr=1e-3)
+plt.show()
 
 ZenkerPatient.enableBaroreflexControl = False
 stateVec = ZenkerPatient.runModelOnBatchOfInitValues(batchSize=50, simDuration=simDuration, enableExternalInput=False)
