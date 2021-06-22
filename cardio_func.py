@@ -88,7 +88,7 @@ class ZenkerToolbox:
 
         systemicParamsDict = {
             "R_TPR_min": 0.5335,  # [mm Hg s/ml] - the minimal peripheral resistance (Netta used 1.2 for kids)
-            "R_TPR_max": 2.134,  # [mm Hg s/ml] - the minimal peripheral resistance (Netta used 2.7 for kids)
+            "R_TPR_max": 2.134,  # [mm Hg s/ml] - the maximal peripheral resistance (Netta used 2.7 for kids)
             "V_a0": 700,  # [ml] - unstressed volume in the arteries (Netta used 20 for kids)
             "V_v0_min": 2700,  # [ml] - minimal venous unstressed volume  (Netta used 900 for kids)
             "V_v0_max": 3100,  # [ml] - maximal venous unstressed volume  (Netta used 1100 for kids)
@@ -141,11 +141,9 @@ class ZenkerToolbox:
         # stateVec: [Ves, Ved, Va, S] (must be list to be compatible with solve_ivp)
         zenkerParamsDict = args[0]
         heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
-        p_totalBloodVol = systemicParamsDict["V_t"]
 
-        Vs = stateVecNoInput[1] - stateVecNoInput[0]
-        Vv = self.computeVenousBloodVolume(stateVecNoInput)
-        stateVecComplete = [stateVecNoInput[0], stateVecNoInput[1], stateVecNoInput[2], Vv, stateVecNoInput[3]]
+        _, Vs, _, _, Vv = self.computeResultantVariables(np.asarray(stateVecNoInput)[None, None, :])
+        stateVecComplete = [stateVecNoInput[0], stateVecNoInput[1], stateVecNoInput[2], Vv[0,0], stateVecNoInput[3]]
 
         dotList = self.zenkerModel(t, stateVecComplete, zenkerParamsDict)
         dot_Ves, dot_Ved, dot_Va, dot_Vv, dot_S = dotList
@@ -156,17 +154,13 @@ class ZenkerToolbox:
         # we use prefix s_ to denote state variables and prefix p_ to denote model parameters
         # stateVec: [Ves, Ved, Va, Vv, S]
         zenkerParamsDict = args[0]
-        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict[
-            "systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
+        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
 
         s_Ves, s_Ved, s_Va, s_Vv, s_S = stateVec
 
         # calculating the variables affected by the sympathetic signal:
-        p_f_HR_min, p_f_HR_max, p_C_PRSW_min, p_C_PRSW_max = heartParamsDict["f_HR_min"], heartParamsDict["f_HR_max"], \
-                                                             heartParamsDict["C_PRSW_min"], heartParamsDict[
-                                                                 "C_PRSW_max"]
-        p_R_TPR_min, p_R_TPR_max, p_V_v0_min, p_V_v0_max = systemicParamsDict["R_TPR_min"], systemicParamsDict[
-            "R_TPR_max"], systemicParamsDict["V_v0_min"], systemicParamsDict["V_v0_max"]
+        p_f_HR_min, p_f_HR_max, p_C_PRSW_min, p_C_PRSW_max = heartParamsDict["f_HR_min"], heartParamsDict["f_HR_max"], heartParamsDict["C_PRSW_min"], heartParamsDict["C_PRSW_max"]
+        p_R_TPR_min, p_R_TPR_max, p_V_v0_min, p_V_v0_max = systemicParamsDict["R_TPR_min"], systemicParamsDict["R_TPR_max"], systemicParamsDict["V_v0_min"], systemicParamsDict["V_v0_max"]
         f_HR = s_S * (p_f_HR_max - p_f_HR_min) + p_f_HR_min  # [Hz]
         R_TPR = s_S * (p_R_TPR_max - p_R_TPR_min) + p_R_TPR_min
         C_PRSW = s_S * (p_C_PRSW_max - p_C_PRSW_min) + p_C_PRSW_min
@@ -174,16 +168,16 @@ class ZenkerToolbox:
 
         # calculating Ped - the pressure in the left ventricle at end of diastole
         p_k_E_lv, p_P_0_lv, p_V_ed_0 = heartParamsDict["k_E_lv"], heartParamsDict["P_0_lv"], heartParamsDict["V_ed_0"]
-        Ped = p_P_0_lv * (np.exp(
-            p_k_E_lv * (s_Ved - p_V_ed_0)) - 1)  # [mmHg] pressure in the left ventricle at end of diastole
+        Ped = p_P_0_lv * (np.exp(p_k_E_lv * (s_Ved - p_V_ed_0)) - 1)  # [mmHg] pressure in the left ventricle at end of diastole
 
         # calculating Pa - the pressure at the arteries
         p_V_a0, p_C_a = systemicParamsDict["V_a0"], systemicParamsDict["C_a"]
         Pa = (s_Va - p_V_a0) / p_C_a
 
-        # calculating tilde_V_es - the current set point of end systolic volume in left ventricle
-        hat_V_es = s_Ved - C_PRSW * (s_Ved - p_V_ed_0) / (Pa - Ped)
+
         if Pa > Ped:
+            # calculating tilde_V_es - the current set point of end systolic volume in left ventricle
+            hat_V_es = s_Ved - C_PRSW * (s_Ved - p_V_ed_0) / (Pa - Ped)
             tilde_V_es = np.max([p_V_ed_0, hat_V_es])
         else:
             tilde_V_es = p_V_ed_0
@@ -192,8 +186,7 @@ class ZenkerToolbox:
         dot_Ves = (tilde_V_es - s_Ves) * f_HR
 
         # calculating Pes - the pressure in the left ventricle at end of systole
-        Pes = p_P_0_lv * (np.exp(
-            p_k_E_lv * (s_Ves - p_V_ed_0)) - 1)  # [mmHg] pressure in the left ventricle at end of systole
+        Pes = p_P_0_lv * (np.exp(p_k_E_lv * (s_Ves - p_V_ed_0)) - 1)  # [mmHg] pressure in the left ventricle at end of systole
 
         # calculating Pv - the pressure in the veins
         p_C_v = systemicParamsDict["C_v"]
@@ -203,9 +196,9 @@ class ZenkerToolbox:
         p_k1, p_R_valve, p_T_sys = heartParamsDict["k1"], heartParamsDict["R_valve"], heartParamsDict["T_sys"]
         k3 = (p_P_0_lv + Pv) / p_R_valve
         t_diastole = 1 / f_HR - p_T_sys
-        hat_V_ed = -(1 / p_k_E_lv) * np.log(
-            p_k1 / k3 * (np.exp(-p_k_E_lv * k3 * t_diastole) - 1) + np.exp(-p_k_E_lv * (s_Ves + k3 * t_diastole)))
+
         if Pv > Pes:
+            hat_V_ed = -(1 / p_k_E_lv) * np.log(p_k1 / k3 * (np.exp(-p_k_E_lv * k3 * t_diastole) - 1) + np.exp(-p_k_E_lv * (s_Ves + k3 * t_diastole)))
             tilde_V_ed = hat_V_ed
         else:
             tilde_V_ed = s_Ves
@@ -295,9 +288,13 @@ class ZenkerToolbox:
 
         return stateVec
 
-    def computeCardiacOutput(self, stateVec):
+    def computeResultantVariables(self, stateVec):
         zenkerParamsDict = self.paramsDict
         heartParamsDict, systemicParamsDict, controlParamsDict, displayParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"], zenkerParamsDict["displayParamsDict"]
+        p_V_a0, p_C_a = systemicParamsDict["V_a0"], systemicParamsDict["C_a"]
+        p_C_v = systemicParamsDict["C_v"]
+        p_V_v0_min, p_V_v0_max = systemicParamsDict["V_v0_min"], systemicParamsDict["V_v0_max"]
+        p_totalBloodVol = systemicParamsDict["V_t"]
 
         s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
 
@@ -308,19 +305,13 @@ class ZenkerToolbox:
 
         cardiacOutput = 60 * Vs * f_HR # [ml/min]
 
-        return cardiacOutput, Vs
-
-    def computeVenousBloodVolume(self, stateVec):
-        zenkerParamsDict = self.paramsDict
-        heartParamsDict, systemicParamsDict, controlParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"]
-        p_totalBloodVol = systemicParamsDict["V_t"]
-
-        s_Ves, s_Ved, s_Va, s_S = stateVec[0], stateVec[1], stateVec[2], stateVec[3]
-        Vs = s_Ved - s_Ves  # stroke volume
-
+        V_v0 = (1 - s_S) * (p_V_v0_max - p_V_v0_min) + p_V_v0_min
         Vv = p_totalBloodVol - (0.5 * Vs + s_Va)  # we assume the mean blood volume in the heart to be half the stroke volume
 
-        return Vv
+        Pa = (s_Va - p_V_a0)/p_C_a
+        Pv = (Vv - V_v0) / p_C_v
+
+        return cardiacOutput, Vs, Pa, Pv, Vv
 
     def fixedPoint_wrt_parameterChange(self, parameterSubDictionaryName, parameterName, parameterUnits, minVal, maxVal, nValues, batchSize, thr):
         nominalParameterValue = self.paramsDict[parameterSubDictionaryName][parameterName]
@@ -329,58 +320,81 @@ class ZenkerToolbox:
         for i, parameterValue in enumerate(parameterValues):
             self.paramsDict[parameterSubDictionaryName][parameterName] = parameterValue
             fixedPoints = self.computeFixedPoints(batchSize, thr)
-            #  s_Ves, s_Ved, s_Va, s_S  (order of values in fixedPoints)
-            assert fixedPoints.shape[1] > 1
-            fixedPoints_wrt_parameterVal.append(fixedPoints[0, :])
+            if fixedPoints.shape[0] == 0:
+                fixedPoints_wrt_parameterVal.append(fixedPoints)
+            else:
+                #  s_Ves, s_Ved, s_Va, s_S  (order of values in fixedPoints)
+                assert fixedPoints.shape[1] > 1
+                fixedPoints_wrt_parameterVal.append(fixedPoints[0, :])
 
-        stateVec = np.asarray(fixedPoints_wrt_parameterVal)[:, None, :]  # [nValues x 1 x #stateVec]
+        # excluding values with no fixed point
+        fixedPoints_wrt_parameterVal_ValidList, parameterValues_ValidList = list(), list()
+        for i, fixedPoint in enumerate(fixedPoints_wrt_parameterVal):
+            if fixedPoint.shape[0] > 0:  # not empty
+                fixedPoints_wrt_parameterVal_ValidList.append(fixedPoint)
+                parameterValues_ValidList.append(parameterValues[i])
+
+        stateVec = np.asarray(fixedPoints_wrt_parameterVal_ValidList)[:, None, :]  # [nValues x 1 x #stateVec]
         figTitle = "fixed point wrt " + parameterName + "; nominalValue = " + np.array_str(np.array(nominalParameterValue)) + " [" + parameterUnits + "]"
         xlabel = parameterName + " [" + parameterUnits + "]"
-        self.printStateVec(stateVec, figTitle, parameterValues, xlabel)
-
+        fileName = "fixed point wrt " + parameterName + ".png"
+        self.printStateVec(stateVec, figTitle, fileName, parameterValues_ValidList, xlabel)
+        # returning the parameter value to the nominal value
         self.paramsDict[parameterSubDictionaryName][parameterName] = nominalParameterValue
 
 
-    def printStateVec(self, stateVec, figTitle, xVec, xlabel):
+    def printStateVec(self, stateVec, figTitle, fileName, xVec, xlabel):
         s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
 
-        cardiacOutput, Vs = self.computeCardiacOutput(stateVec)  # [ml / min], [ml]
+        cardiacOutput, Vs, Pa, Pv, _ = self.computeResultantVariables(stateVec)
 
-        fig, axs = plt.subplots(3, 2, sharex=True, sharey=False)
+        fig, axs = plt.subplots(3, 3, sharex=True, sharey=False, figsize=(16,16))
 
         fig.suptitle(figTitle, fontsize=16)
 
-        axs[0, 0].plot(xVec, s_Ves, label='Ves')
-        axs[0, 0].set_xlabel(xlabel)
+        axs[0, 0].plot(xVec, s_Ves, '.', label='Ves')
+        #axs[0, 0].set_xlabel(xlabel)
         axs[0, 0].set_ylabel('ml')
         axs[0, 0].set_title('Ves')
 
-        axs[1, 0].plot(xVec, s_Ved, label='Ved')
-        axs[1, 0].set_xlabel(xlabel)
+        axs[1, 0].plot(xVec, s_Ved, '.', label='Ved')
+        #axs[1, 0].set_xlabel(xlabel)
         axs[1, 0].set_ylabel('ml')
         axs[1, 0].set_title('Ved')
 
-        axs[0, 1].plot(xVec, s_Va, label='Va')
-        axs[0, 1].set_xlabel(xlabel)
+        axs[0, 1].plot(xVec, s_Va, '.', label='Va')
+        #axs[0, 1].set_xlabel(xlabel)
         axs[0, 1].set_ylabel('ml')
         axs[0, 1].set_title('Va')
 
-        axs[1, 1].plot(xVec, s_S, label='S')
-        axs[1, 1].set_xlabel(xlabel)
+        axs[1, 1].plot(xVec, s_S, '.', label='S')
+        #axs[1, 1].set_xlabel(xlabel)
         axs[1, 1].set_title('S')
 
-        axs[2, 0].plot(xVec, cardiacOutput)
-        axs[2, 0].set_xlabel(xlabel)
-        axs[2, 0].set_ylabel('ml / min')
-        axs[2, 0].set_title('cardiac output')
-
-        axs[2, 1].plot(xVec, Vs)
+        axs[2, 1].plot(xVec, cardiacOutput, '.')
         axs[2, 1].set_xlabel(xlabel)
-        axs[2, 1].set_ylabel('ml')
-        axs[2, 1].set_title('stroke vol.')
+        axs[2, 1].set_ylabel('ml / min')
+        axs[2, 1].set_title('cardiac output')
+
+        axs[2, 0].plot(xVec, Vs, '.')
+        axs[2, 0].set_xlabel(xlabel)
+        axs[2, 0].set_ylabel('ml')
+        axs[2, 0].set_title('stroke vol.')
+
+        axs[0, 2].plot(xVec, Pa, '.')
+        #axs[0, 2].set_xlabel(xlabel)
+        axs[0, 2].set_ylabel('mm Hg')
+        axs[0, 2].set_title('Pa')
+
+        axs[1, 2].plot(xVec, Pv, '.')
+        axs[1, 2].set_xlabel(xlabel)
+        axs[1, 2].set_ylabel('mm Hg')
+        axs[1, 2].set_title('Pv')
+
+        plt.savefig(fileName, dpi=150)
 
 
-    def printModelTrajectories(self, stateVec, figTitle):
+    def printModelTrajectories(self, stateVec, figTitle, fileName):
         batchSize, nSamples = stateVec.shape[1], stateVec.shape[0]
 
         zenkerParamsDict = self.paramsDict
@@ -391,7 +405,7 @@ class ZenkerToolbox:
 
         tVec = (1/p_fs) * np.arange(0, nSamples)  # [sec]
 
-        self.printStateVec(stateVec, figTitle, tVec, "sec")
+        self.printStateVec(stateVec, figTitle, fileName, tVec, "sec")
 
 
 
