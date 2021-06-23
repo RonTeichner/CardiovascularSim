@@ -338,12 +338,12 @@ class ZenkerToolbox:
         figTitle = "fixed point wrt " + parameterName + "; nominalValue = " + np.array_str(np.array(nominalParameterValue)) + " [" + parameterUnits + "]"
         xlabel = parameterName + " [" + parameterUnits + "]"
         fileName = "fixed point wrt " + parameterName + ".png"
-        self.printStateVec(stateVec, figTitle, fileName, parameterValues_ValidList, xlabel)
+        self.printStateVec(stateVec, figTitle, fileName, parameterValues_ValidList, xlabel, '.')
         # returning the parameter value to the nominal value
         self.paramsDict[parameterSubDictionaryName][parameterName] = nominalParameterValue
 
 
-    def printStateVec(self, stateVec, figTitle, fileName, xVec, xlabel):
+    def printStateVec(self, stateVec, figTitle, fileName, xVec, xlabel, lineStyle='-'):
         s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
 
         cardiacOutput, Vs, Pa, Pv, _ = self.computeResultantVariables(stateVec)
@@ -352,41 +352,41 @@ class ZenkerToolbox:
 
         fig.suptitle(figTitle, fontsize=16)
 
-        axs[0, 0].plot(xVec, s_Ves, '.', label='Ves')
+        axs[0, 0].plot(xVec, s_Ves, lineStyle, label='Ves')
         #axs[0, 0].set_xlabel(xlabel)
         axs[0, 0].set_ylabel('ml')
         axs[0, 0].set_title('Ves')
 
-        axs[1, 0].plot(xVec, s_Ved, '.', label='Ved')
+        axs[1, 0].plot(xVec, s_Ved, lineStyle, label='Ved')
         #axs[1, 0].set_xlabel(xlabel)
         axs[1, 0].set_ylabel('ml')
         axs[1, 0].set_title('Ved')
 
-        axs[0, 1].plot(xVec, s_Va, '.', label='Va')
+        axs[0, 1].plot(xVec, s_Va, lineStyle, label='Va')
         #axs[0, 1].set_xlabel(xlabel)
         axs[0, 1].set_ylabel('ml')
         axs[0, 1].set_title('Va')
 
-        axs[1, 1].plot(xVec, s_S, '.', label='S')
+        axs[1, 1].plot(xVec, s_S, lineStyle, label='S')
         #axs[1, 1].set_xlabel(xlabel)
         axs[1, 1].set_title('S')
 
-        axs[2, 1].plot(xVec, cardiacOutput, '.')
+        axs[2, 1].plot(xVec, cardiacOutput, lineStyle)
         axs[2, 1].set_xlabel(xlabel)
         axs[2, 1].set_ylabel('ml / min')
         axs[2, 1].set_title('cardiac output')
 
-        axs[2, 0].plot(xVec, Vs, '.')
+        axs[2, 0].plot(xVec, Vs, lineStyle)
         axs[2, 0].set_xlabel(xlabel)
         axs[2, 0].set_ylabel('ml')
         axs[2, 0].set_title('stroke vol.')
 
-        axs[0, 2].plot(xVec, Pa, '.')
+        axs[0, 2].plot(xVec, Pa, lineStyle)
         #axs[0, 2].set_xlabel(xlabel)
         axs[0, 2].set_ylabel('mm Hg')
         axs[0, 2].set_title('Pa')
 
-        axs[1, 2].plot(xVec, Pv, '.')
+        axs[1, 2].plot(xVec, Pv, lineStyle)
         axs[1, 2].set_xlabel(xlabel)
         axs[1, 2].set_ylabel('mm Hg')
         axs[1, 2].set_title('Pv')
@@ -406,6 +406,22 @@ class ZenkerToolbox:
         tVec = (1/p_fs) * np.arange(0, nSamples)  # [sec]
 
         self.printStateVec(stateVec, figTitle, fileName, tVec, "sec")
+
+    def plot_S_vs_Pa_nullcline(self):
+        zenkerParamsDict = self.paramsDict
+        heartParamsDict, systemicParamsDict, controlParamsDict, displayParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"], zenkerParamsDict["displayParamsDict"]
+
+        Pa_vec = np.arange(20, 140, 0.1)
+        p_K_width, p_P_a_set, p_tau_Baro = controlParamsDict["K_width"], controlParamsDict["P_a_set"], controlParamsDict["tau_Baro"]
+        logisticFunc = 1 / (1 + np.exp(-p_K_width * (Pa_vec - p_P_a_set)))
+        S_vec = 1 - logisticFunc
+        plt.figure()
+        plt.plot(Pa_vec - p_P_a_set, S_vec)
+        plt.xlabel(r'$P_a - P_{set}$')
+        plt.ylabel('S')
+        plt.grid()
+        plt.title(r'$S(P_a)$ nullcline; $\dot{S}=0$')
+        plt.savefig('S_Pa_nullcline.png', dpi=150)
 
 
 
