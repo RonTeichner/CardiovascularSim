@@ -3,8 +3,8 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 from cardio_func import *
 
-enableFixedPoint = False
-enableTrajectories = True
+enableFixedPoint = True
+enableTrajectories = False
 
 '''
 epidemicComunity = EpidemicToolbox()

@@ -338,12 +338,24 @@ class ZenkerToolbox:
         figTitle = "fixed point wrt " + parameterName + "; nominalValue = " + np.array_str(np.array(nominalParameterValue)) + " [" + parameterUnits + "]"
         xlabel = parameterName + " [" + parameterUnits + "]"
         fileName = "fixed point wrt " + parameterName + ".png"
-        self.printStateVec(stateVec, figTitle, fileName, parameterValues_ValidList, xlabel, '.')
+
+        ylimDict = {
+            "Ves": [7, 12],
+            "Ved": [0, 70],
+            "Vs": [0, 70],
+            "Va": [500, 2200],
+            "S": [0, 1],
+            "CO": [0, 5000],
+            "Pa": [-20, 80],
+            "Pv": [8, 15]
+        }
+
+        self.printStateVec(stateVec, figTitle, fileName, parameterValues_ValidList, xlabel, '.', ylimDict)
         # returning the parameter value to the nominal value
         self.paramsDict[parameterSubDictionaryName][parameterName] = nominalParameterValue
 
 
-    def printStateVec(self, stateVec, figTitle, fileName, xVec, xlabel, lineStyle='-'):
+    def printStateVec(self, stateVec, figTitle, fileName, xVec, xlabel, lineStyle='-', ylimDict = None):
         s_Ves, s_Ved, s_Va, s_S = stateVec[:, :, 0], stateVec[:, :, 1], stateVec[:, :, 2], stateVec[:, :, 3]
 
         cardiacOutput, Vs, Pa, Pv, _ = self.computeResultantVariables(stateVec)
@@ -356,40 +368,48 @@ class ZenkerToolbox:
         #axs[0, 0].set_xlabel(xlabel)
         axs[0, 0].set_ylabel('ml')
         axs[0, 0].set_title('Ves')
+        axs[0, 0].set_ylim(ylimDict["Ves"])
 
         axs[1, 0].plot(xVec, s_Ved, lineStyle, label='Ved')
         #axs[1, 0].set_xlabel(xlabel)
         axs[1, 0].set_ylabel('ml')
         axs[1, 0].set_title('Ved')
+        axs[1, 0].set_ylim(ylimDict["Ved"])
 
         axs[0, 1].plot(xVec, s_Va, lineStyle, label='Va')
         #axs[0, 1].set_xlabel(xlabel)
         axs[0, 1].set_ylabel('ml')
         axs[0, 1].set_title('Va')
+        axs[0, 1].set_ylim(ylimDict["Va"])
 
         axs[1, 1].plot(xVec, s_S, lineStyle, label='S')
         #axs[1, 1].set_xlabel(xlabel)
         axs[1, 1].set_title('S')
+        axs[1, 1].set_ylim(ylimDict["S"])
 
         axs[2, 1].plot(xVec, cardiacOutput, lineStyle)
         axs[2, 1].set_xlabel(xlabel)
         axs[2, 1].set_ylabel('ml / min')
         axs[2, 1].set_title('cardiac output')
+        axs[2, 1].set_ylim(ylimDict["CO"])
 
         axs[2, 0].plot(xVec, Vs, lineStyle)
         axs[2, 0].set_xlabel(xlabel)
         axs[2, 0].set_ylabel('ml')
         axs[2, 0].set_title('stroke vol.')
+        axs[2, 0].set_ylim(ylimDict["Vs"])
 
         axs[0, 2].plot(xVec, Pa, lineStyle)
         #axs[0, 2].set_xlabel(xlabel)
         axs[0, 2].set_ylabel('mm Hg')
         axs[0, 2].set_title('Pa')
+        axs[0, 2].set_ylim(ylimDict["Pa"])
 
         axs[1, 2].plot(xVec, Pv, lineStyle)
         axs[1, 2].set_xlabel(xlabel)
         axs[1, 2].set_ylabel('mm Hg')
         axs[1, 2].set_title('Pv')
+        axs[1, 2].set_ylim(ylimDict["Pv"])
 
         plt.savefig(fileName, dpi=150)
 
