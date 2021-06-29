@@ -51,7 +51,7 @@ if enableFixedPoint:
     print('finished ' + "C_a")
     ZenkerPatient.fixedPoint_wrt_parameterChange("systemicParamsDict", "V_t", parameterUnits = 'ml', minVal=2000, maxVal=6000, nValues=nValues, batchSize=batchSize, thr=1e-3)
     print('finished ' + "V_t")
-    ZenkerPatient.fixedPoint_wrt_parameterChange("controlParamsDict", "P_a_set", parameterUnits = 'mm Hg', minVal=50, maxVal=100, nValues=nValues, batchSize=batchSize, thr=1e-3)
+    ZenkerPatient.fixedPoint_wrt_parameterChange("controlParamsDict", "P_a_set", parameterUnits = 'mm Hg', minVal=50, maxVal=200, nValues=nValues, batchSize=batchSize, thr=1e-3)
     print('finished ' + "P_a_set")
     ZenkerPatient.fixedPoint_wrt_parameterChange("controlParamsDict", "K_width", parameterUnits = '1 / mm Hg', minVal=0.01838, maxVal=1.838, nValues=nValues, batchSize=batchSize, thr=1e-3)
     print('finished ' + "K_width")

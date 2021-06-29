@@ -71,13 +71,13 @@ class ZenkerToolbox:
 
         # Empiric figure limits
         self.ylimDict = {
-            "Ves": [7, 12],
+            "Ves": [7, 15], # [7, 12]
             "Ved": [0, 70],
             "Vs": [0, 70],
             "Va": [500, 2200],
             "S": [0, 1],
             "CO": [0, 5000],
-            "Pa": [-20, 80],
+            "Pa": [-20, 200], # [-20, 80]
             "Pv": [8, 15]
         }
 
