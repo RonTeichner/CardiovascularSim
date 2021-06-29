@@ -3,8 +3,8 @@ from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
 from cardio_func import *
 
-enableFixedPoint = True
-enableTrajectories = False
+enableFixedPoint = False
+enableTrajectories = True
 
 '''
 epidemicComunity = EpidemicToolbox()
@@ -64,10 +64,10 @@ if enableTrajectories:
     simDuration = 1000  # [sec]
     ZenkerPatient.enableBaroreflexControl = False
     stateVec = ZenkerPatient.runModelOnBatchOfInitValues(batchSize=50, simDuration=simDuration, enableExternalInput=False)
-    ZenkerPatient.printModelTrajectories(stateVec, figTitle='Control is off', fileName='Control is off')
+    ZenkerPatient.printModelTrajectories(stateVec, figTitle='Control is off', fileName='Control is off', useYlim=True)
 
     ZenkerPatient.enableBaroreflexControl = True
     stateVec = ZenkerPatient.runModelOnBatchOfInitValues(batchSize=50, simDuration=simDuration, enableExternalInput=False)
-    ZenkerPatient.printModelTrajectories(stateVec, figTitle='Control is on', fileName='Control is on')
+    ZenkerPatient.printModelTrajectories(stateVec, figTitle='Control is on', fileName='Control is on', useYlim=True)
 
     plt.show()
