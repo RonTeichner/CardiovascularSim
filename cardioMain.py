@@ -70,4 +70,6 @@ if enableTrajectories:
     stateVec = ZenkerPatient.runModelOnBatchOfInitValues(batchSize=50, simDuration=simDuration, enableExternalInput=False)
     ZenkerPatient.printModelTrajectories(stateVec, figTitle='Control is on', fileName='Control is on', useYlim=True)
 
+    ZenkerPatient.plot_Vlv()
+
     plt.show()

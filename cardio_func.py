@@ -429,6 +429,25 @@ class ZenkerToolbox:
 
         self.printStateVec(stateVec, figTitle, fileName, tVec, "sec", useYlim=useYlim)
 
+    def plot_Vlv(self):
+        fs = 1000
+        duration = 1  # sec
+        tVec = np.arange(0, int(np.ceil(fs*duration)))/fs
+
+        heartParamsDict, systemicParamsDict, controlParamsDict = self.paramsDict["heartParamsDict"], self.paramsDict["systemicParamsDict"], self.paramsDict["controlParamsDict"]
+
+        k2 = heartParamsDict["k_E_lv"]
+        k1 = heartParamsDict["k1"]
+        p_P_0_lv, p_R_valve = heartParamsDict["P_0_lv"], heartParamsDict["R_valve"]
+        Pv, Ves = 9.83, 7.142  # taken manually from simulation
+        k3 = (p_P_0_lv + Pv) / p_R_valve
+
+        Vlv = -(1 / k2) * np.log(k1 / k3 * (np.exp(-k2 * k3 * tVec) - 1) + np.exp(-k2 * (Ves + k3 * tVec)))
+        plt.figure()
+        plt.plot(tVec, Vlv)
+        plt.xlabel('sec')
+        plt.ylabel('ml')
+
     def plot_S_vs_Pa_nullcline(self):
         zenkerParamsDict = self.paramsDict
         heartParamsDict, systemicParamsDict, controlParamsDict, displayParamsDict = zenkerParamsDict["heartParamsDict"], zenkerParamsDict["systemicParamsDict"], zenkerParamsDict["controlParamsDict"], zenkerParamsDict["displayParamsDict"]
